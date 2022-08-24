@@ -171,6 +171,9 @@ fzf_bash_completion() {
     fi
     local cur="${COMP_WORDS[COMP_CWORD]}"
 
+    local AUTO_NEXT_CALL=false
+    [ ${READLINE_LINE:READLINE_POINT} ] && local FZF_COMPLETION_AUTO_NEXT_CALL=false
+
     local COMPREPLY=
     fzf_bash_completer "$cmd" "$cur" "$prev"
     if [ -n "$COMPREPLY" ]; then
@@ -183,11 +186,17 @@ fzf_bash_completion() {
 
     printf '\r'
     command tput el 2>/dev/null || echo -ne "\033[K"
+
+    if [ "$AUTO_NEXT_CALL" = true ]; then
+        local FZF_COMPLETION_NO_AUTO_SELECT_ONLY_ONE=true
+        local FZF_COMPLETION_AUTO_COMMON_PREFIX=false
+        fzf_bash_completion
+    fi
 }
 
 _fzf_bash_completion_selector() {
-    FZF_DEFAULT_OPTS="--height ${FZF_TMUX_HEIGHT:-40%} --reverse $FZF_DEFAULT_OPTS $FZF_COMPLETION_OPTS" \
-        $(__fzfcmd 2>/dev/null || echo fzf) -1 -0 --prompt "> $line" --nth 2 -d "$_FZF_COMPLETION_SEP" \
+        $(__fzfcmd 2>/dev/null || echo fzf) -0 --prompt "> $line" --nth 2 -d "$_FZF_COMPLETION_SEP" \
+        $([ "$FZF_COMPLETION_NO_AUTO_SELECT_ONLY_ONE" != true ] && echo -1) \
     | tr -d "$_FZF_COMPLETION_SEP"
 }
 
@@ -338,6 +347,14 @@ fzf_bash_completer() {
         COMPREPLY="${COMPREPLY[*]}"
         [ "$compl_nospace" != 1 ] && COMPREPLY="$COMPREPLY "
         [[ "$compl_filenames" == *1* ]] && COMPREPLY="${COMPREPLY/%\/ //}"
+
+        if [ "$FZF_COMPLETION_AUTO_NEXT_CALL" = true ] && [ "$COMPREPLY" ]; then
+            if [ "$COMP_CWORD" == 0 ] || [[ "$compl_filenames" != *1* ]]; then
+                [ "$compl_nospace" != 1 ] && AUTO_NEXT_CALL=true
+            else
+                [[ "$COMPREPLY" != *" " ]] && AUTO_NEXT_CALL=true
+            fi
+        fi
     fi
 }
 

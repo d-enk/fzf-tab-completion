@@ -107,8 +107,8 @@ you may prefer (or not!) to use the [readline](#readline) method instead.
 Enables auto-completion of the common prefix if present (without fzf) - add prefix as whole word.
 
 ```
-12 123 -> 12
-121 123 -> 121 123
+   12 123 -> 12
+   121 123 -> 121 123
 ```
 
 `FZF_COMPLETION_AUTO_COMMON_PREFIX_PART=true`
@@ -116,8 +116,26 @@ Enables auto-completion of the common prefix if present (without fzf) - add pref
 Additionally enables native bash complete behavior - add prefix as part of word.
 
 ```
-12 123 -> 12
-121 123 -> 12
+   12 123 -> 12
+   121 123 -> 12
+```
+
+#### No automatically select the only match
+
+`FZF_COMPLETION_NO_AUTO_SELECT_ONLY_ONE=true`
+
+Disables fzf option (-1, --select-1 Automatically select the only match).
+
+#### Auto call next completion
+
+`FZF_COMPLETION_AUTO_NEXT_CALL=true`
+
+Enables auto-call next completion for paths or if previous word was ends with space.
+To avoid unnecessary actions, auto next call with options:
+
+``` bash
+  local FZF_COMPLETION_NO_AUTO_SELECT_ONLY_ONE=true
+  local FZF_COMPLETION_AUTO_COMMON_PREFIX=false
 ```
 
 #### tmux
