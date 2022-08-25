@@ -114,7 +114,7 @@ s/\x00(\s*)$/\n\1/;
 s/([^&\n\x00])&([^&\n\x00])/\1\n\&\n\2/g;
 s/([\n\x00\z])([<>]+)([^\n\x00])/\1\2\n\3/g;
 s/([<>][\n\x00])$/\1\n/;
-s/^(.*[\x00\n])?(\[\[|case|do|done|elif|else|esac|fi|for|function|if|in|select|then|time|until|while|&|;|&&|\|[|&]?)[\x00\n]//;
+s/^(.*[\x00\n])?(\[\[|&|;|&&|\|[|&]?)[\x00\n]//;
 s/^(\s*[\n\x00]|\w+=[^\n\x00]*[\n\x00])*//
 EOF
 )" \
@@ -143,7 +143,7 @@ _fzf_bash_completion_loading_msg() {
 fzf_bash_completion() {
     printf '\r'
     command tput sc 2>/dev/null || echo -ne "\0337"
-    printf '%s' "$(_fzf_bash_completion_loading_msg)"
+    # printf '%s' "$(_fzf_bash_completion_loading_msg)"
     command tput rc 2>/dev/null || echo -ne "\0338"
 
     local COMP_WORDS COMP_CWORD COMP_POINT COMP_LINE
@@ -541,7 +541,7 @@ _fzf_bash_completion_dir_marker() {
         if [[ "$line" == \~* ]]; then
             eval "$(printf expanded=~%q "${line:1}")"
         fi
-        [ -d "${expanded-"$line"}" ] && line="$line/"
+        [ -d "${expanded-"$line"}" ] && line="${line%/}/"
         printf '%s\n' "$line"
     done
 }
