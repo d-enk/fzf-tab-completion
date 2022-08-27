@@ -171,6 +171,7 @@ fzf_bash_completion() {
     fi
     local cur="${COMP_WORDS[COMP_CWORD]}"
 
+    [ ! "$AUTO_NEXT_CALL" ] && local prev_items
     local AUTO_NEXT_CALL=false
     [ ${READLINE_LINE:READLINE_POINT} ] && local FZF_COMPLETION_AUTO_NEXT_CALL=false
 
@@ -298,6 +299,24 @@ _fzf_bash_completion_get_results() {
     fi
 }
 
+_fzf_bash_completion_stop_next_call_if_equal_prev() {
+    if [ "$FZF_COMPLETION_AUTO_NEXT_CALL" = true ]; then
+        read -r item && items+=("$item") || return
+
+        for ((i=0; i<$1; i++)); do
+          [ "$item" != "${prev_items[$i]}" ] && unset prev_items
+          read -r item && items+=("$item") || break
+        done
+
+        [ "$prev_items" ] && return # stop
+
+        printf "prev_items=(${items[*]})\n" >&"${__evaled}"
+        IFS=$'\n'; echo "${items[*]}"
+    fi
+
+    cat
+}
+
 _fzf_bash_completion_auto_common_prefix() {
     if [ "$FZF_COMPLETION_AUTO_COMMON_PREFIX" = true ]; then
         read -r prefix && items=("$prefix") || return
@@ -355,7 +374,8 @@ fzf_bash_completer() {
                 while (( $? == 124 )); do
                     _fzf_bash_completion_get_results "$@"
                 done
-            ) | _fzf_bash_completion_unbuffered_awk '$0!="" && !x[$0]++' '$0 = substr($0, 1, len) sep substr($0, len+1)' -vlen="${#__unquoted}" -vsep="$_FZF_COMPLETION_SEP" \
+            ) | _fzf_bash_completion_stop_next_call_if_equal_prev 5 \
+              | _fzf_bash_completion_unbuffered_awk '$0!="" && !x[$0]++' '$0 = substr($0, 1, len) sep substr($0, len+1)' -vlen="${#__unquoted}" -vsep="$_FZF_COMPLETION_SEP" \
               | _fzf_bash_completion_auto_common_prefix "$__unquoted"
         )
         value="$(_fzf_bash_completion_selector "$1" "$__unquoted" "$3" <&"${COPROC[0]}")"
