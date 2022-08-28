@@ -196,20 +196,19 @@ fzf_bash_completion() {
 }
 
 _fzf_bash_completion_selector() {
-    local preview="--preview="
-
-    if [ $COMP_CWORD == 0 ] || [ "$(which $COMP_WORDS)" ]; then
-        preview="--preview=$(cat << END
+    local preview="--preview=$(cat << END
 COMP_WORDS=(${COMP_WORDS[@]})
 COMP_WORDS[$COMP_CWORD]={1}{2}
 
-if [ "{+2}" == "{2}" ]; then
+if [ "{+2}" == "{2}" ] && [ "$(which $COMP_WORDS)" ]; then
   default="\$COMP_WORDS --help \${COMP_WORDS[@]: 1}"
   declare -A m=( [go]="go help \${COMP_WORDS[@]: 1}" )
   m[micro]="micro --help"
+  m[docker]="docker help \${COMP_WORDS[@]: 1}"
 
   message=\$(\${m[\$COMP_WORDS]-\$default} 2>/dev/null)
   [ "\$message" ] && echo "\$message" | bat --plain --color=always --language=help 2>/dev/null
+  COMP_WORDS[0]=
 fi
 
 selected=({+2})
@@ -221,20 +220,6 @@ echo; exa -a \${COMP_WORDS[@]} 2>/dev/null
 echo; bat --plain --color=always \${COMP_WORDS[@]} 2>/dev/null
 END
 )"
-    else
-        preview="--preview=$(cat << END
-COMP_WORDS=(${COMP_WORDS[@]})
-
-selected=({+2})
-[[ "{+2}" != *"{2}"* ]] && selected+=({2})
-
-COMP_WORDS[$COMP_CWORD]="\${selected[@]/#/{1}}"
-
-echo; exa -a \${COMP_WORDS[@]} 2>/dev/null
-echo; bat --plain --color=always \${COMP_WORDS[@]} 2>/dev/null
-END
-)"
-    fi
 
     FZF_DEFAULT_OPTS="'$preview' --height ${FZF_TMUX_HEIGHT:-40%} --reverse $FZF_DEFAULT_OPTS $FZF_COMPLETION_OPTS" \
         $(__fzfcmd 2>/dev/null || echo fzf) -0 --prompt "> $line" --nth 2 -d "$_FZF_COMPLETION_SEP" \
