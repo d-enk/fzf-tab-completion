@@ -173,7 +173,7 @@ fzf_bash_completion() {
 
     [ ! "$AUTO_NEXT_CALL" ] && local prev_items
     local AUTO_NEXT_CALL=false
-    [ ${READLINE_LINE:READLINE_POINT} ] && local FZF_COMPLETION_AUTO_NEXT_CALL=false
+    [ "${READLINE_LINE:READLINE_POINT}" ] && local FZF_COMPLETION_AUTO_NEXT_CALL=false
 
     local COMPREPLY=
     fzf_bash_completer "$cmd" "$cur" "$prev"
@@ -315,18 +315,26 @@ _fzf_bash_completion_auto_common_prefix() {
                 if [[ "${item:i:1}" != "${prefix:i:1}" ]]; then
                     prefix_len="$i"
                     unset prefix_is_full
+                    unset nospace_suffix
                     break
                 fi
             done
 
-            if [ -z "$prefix_is_full" ] && [ -z "${item:i:1}" ]; then
+            [ ! "$nospace_suffix" ] && [ ${item:i:1} ] && nospace_suffix=true
+
+            if [ -z "$prefix_is_full" ] && [ -z ${item:i:1} ]; then
                 prefix_is_full=1
             fi
         done
 
         if [ "$prefix_len" != "$input_len" ]; then
             if [ "$FZF_COMPLETION_AUTO_COMMON_PREFIX_PART" == true ] || [ "$prefix_is_full" == 1 ]; then
-                [ "${items[1]}" ] && printf 'compl_nospace=1\n'>&"${__evaled}" # no space if not only one
+
+                if [ "$prefix_is_full" == 1 ]; then
+                  [ "$COMP_CWORD" != 0 ] && printf 'local FZF_COMPLETION_AUTO_NEXT_CALL=false\n'>&"${__evaled}"
+                fi
+
+                ([ ${prefix:prefix_len:1} ] || [ "$nospace_suffix" ]) && printf 'compl_nospace=1\n'>&"${__evaled}" # no space if not only one
                 tr -d "$_FZF_COMPLETION_SEP" <<< "${prefix:0:prefix_len}"
                 return
             fi
@@ -336,6 +344,15 @@ _fzf_bash_completion_auto_common_prefix() {
     fi
 
     cat
+}
+
+_fzf_bash_completion_custom_source() {
+  return
+}
+
+_fzf_bash_completion_with_custom_source() {
+  ( _fzf_bash_completion_custom_source | rg "^$line" | cut -c "$(( ${#line} - ${#cur} + 1 ))-" | sed 's/ *$//g' ) 2>/dev/null
+  cat
 }
 
 fzf_bash_completer() {
@@ -360,6 +377,7 @@ fzf_bash_completer() {
                     _fzf_bash_completion_get_results "$@"
                 done
             ) | _fzf_bash_completion_stop_next_call_if_equal_prev 5 \
+              | _fzf_bash_completion_with_custom_source \
               | _fzf_bash_completion_unbuffered_awk '$0!="" && !x[$0]++' '$0 = substr($0, 1, len) sep substr($0, len+1)' -vlen="${#__unquoted}" -vsep="$_FZF_COMPLETION_SEP" \
               | _fzf_bash_completion_auto_common_prefix "$__unquoted"
         )
@@ -379,7 +397,7 @@ fzf_bash_completer() {
                         printf '%s\n' "$line"
                     # never quote the prefix
                     elif [ "${line::${#2}}" = "$2" ]; then
-                        printf '%s%q\n' "$2" "${line:${#2}}"
+                        printf '%s%s\n' "$2" "${line:${#2}}"
                     elif [ "${line::1}" = '~' ]; then
                         printf '~%q\n' "${line:1}"
                     else
@@ -391,16 +409,19 @@ fzf_bash_completer() {
             fi <<<"$COMPREPLY"
         )
         COMPREPLY="${COMPREPLY[*]}"
-        [ "$compl_nospace" != 1 ] && COMPREPLY="$COMPREPLY "
-        [[ "$compl_filenames" == *1* ]] && COMPREPLY="${COMPREPLY/%\/ //}"
 
         if [ "$FZF_COMPLETION_AUTO_NEXT_CALL" = true ] && [ "$COMPREPLY" ]; then
-            if [ "$COMP_CWORD" == 0 ] || [[ "$compl_filenames" != *1* ]]; then
+            if [[ "$COMPREPLY" == *" "* ]]; then
+                AUTO_NEXT_CALL=false
+            elif [ "$COMP_CWORD" == 0 ]; then
                 [ "$compl_nospace" != 1 ] && AUTO_NEXT_CALL=true
-            else
-                [[ "$COMPREPLY" != *" " ]] && AUTO_NEXT_CALL=true
+            elif [[ "$compl_filenames" != *1* ]]; then
+                [[ "$COMPREPLY" != */ ]] && AUTO_NEXT_CALL=true
             fi
         fi
+
+        [ "$compl_nospace" != 1 ] && COMPREPLY="$COMPREPLY "
+        [[ "$compl_filenames" == *1* ]] && COMPREPLY="${COMPREPLY/%\/ //}"
     fi
 }
 
