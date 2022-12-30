@@ -1,7 +1,6 @@
 _FZF_COMPLETION_SEP=$'\x01'
 
 # shell parsing stuff
-_fzf_bash_completion_egrep="$( { which rg || echo egrep; } 2>/dev/null)"
 _fzf_bash_completion_awk="$( { which gawk || echo awk; } 2>/dev/null)"
 _fzf_bash_completion_sed="$( { which gsed || echo sed; } 2>/dev/null)"
 
@@ -10,7 +9,7 @@ _fzf_bash_completion_awk_escape() {
 }
 
 _fzf_bash_completion_shell_split() {
-    "$_fzf_bash_completion_egrep" -o \
+    grep -E -o \
         -e '[;(){}&\|:]' \
         -e '\|+|&+' \
         -e "(\\\\.|[^\"'[:space:];:(){}&\\|])+" \
@@ -59,7 +58,7 @@ _fzf_bash_completion_find_matching_bracket() {
         else
             (( count -- ))
         fi
-    done < <(fgrep $'(\n)' -n)
+    done < <(grep -F -e '(' -e ')' -n)
     return 1
 }
 
@@ -96,7 +95,7 @@ _fzf_bash_completion_parse_dq() {
             fi
             # subshell closed
             joined="$(<<<"$split" head -n "$num" | tr -d \\n)"
-            word+=$'\n'"\$($joined"$'\n'
+            word+=$'\n$('"$joined"$'\n'
             shell="${shell:${#joined}}"
         done
     fi
@@ -122,7 +121,13 @@ EOF
 }
 
 _fzf_bash_completion_compspec() {
-    complete -p -- "$1" || complete -p '' || printf '%s\n' 'complete -o filenames -F _fzf_bash_completion_fallback_completer'
+    if [[ "$COMP_CWORD" == 0 && -z "$2" ]]; then
+        complete -p -E || printf '%s\n' 'complete -F _fzf_bash_completion_complete_commands -E'
+    elif [[ "$COMP_CWORD" == 0 ]]; then
+        complete -p -I || printf '%s\n' 'complete -F _fzf_bash_completion_complete_commands -I'
+    else
+        complete -p -- "$1" || complete -p -D || printf '%s\n' 'complete -o filenames -F _fzf_bash_completion_fallback_completer'
+    fi
 }
 
 _fzf_bash_completion_fallback_completer() {
@@ -134,6 +139,12 @@ _fzf_bash_completion_fallback_completer() {
         # complete files
         readarray -t COMPREPLY < <(compgen -f -- "$1")
     fi
+}
+
+_fzf_bash_completion_complete_commands() {
+    # commands
+    compopt -o filenames
+    readarray -t COMPREPLY < <(compgen -abc -- "$2")
 }
 
 _fzf_bash_completion_loading_msg() {
@@ -249,10 +260,6 @@ _fzf_bash_completion_get_results() {
             local prefix="$2"
         fi
         compgen -v -P "$prefix" -S "${brace:+\}}" -- "$filter"
-    elif [ "$COMP_CWORD" == 0 ]; then
-        # commands
-        printf '%s\n' compl_filenames=1 >&"${__evaled}"
-        compgen -abc -- "$2" | _fzf_bash_completion_dir_marker
     elif [[ "$2" == *"$trigger" ]]; then
         # replicate fzf ** trigger completion
         local suffix="${2##*/}"
@@ -304,6 +311,7 @@ _fzf_bash_completion_stop_next_call_if_equal_prev() {
 
 _fzf_bash_completion_auto_common_prefix() {
     if [ "$FZF_COMPLETION_AUTO_COMMON_PREFIX" = true ]; then
+        local prefix item items prefix_len prefix_is_full input_len i
         read -r prefix && items=("$prefix") || return
         prefix_len="${#prefix}"
         prefix_is_full=1 # prefix == item
@@ -340,7 +348,7 @@ _fzf_bash_completion_auto_common_prefix() {
             fi
         fi
 
-        IFS=$'\n'; echo "${items[*]}"
+        printf %s\\n "${items[@]}"
     fi
 
     cat
@@ -378,7 +386,7 @@ fzf_bash_completer() {
                 done
             ) | _fzf_bash_completion_stop_next_call_if_equal_prev 5 \
               | _fzf_bash_completion_with_custom_source \
-              | _fzf_bash_completion_unbuffered_awk '$0!="" && !x[$0]++' '$0 = substr($0, 1, len) sep substr($0, len+1)' -vlen="${#__unquoted}" -vsep="$_FZF_COMPLETION_SEP" \
+              | _fzf_bash_completion_unbuffered_awk '$0!="" && !x[$0]++' '$0 = "\x1b[37m" substr($0, 1, len) "\x1b[0m" sep substr($0, len+1)' -vlen="${#__unquoted}" -vsep="$_FZF_COMPLETION_SEP" \
               | _fzf_bash_completion_auto_common_prefix "$__unquoted"
         )
         value="$(_fzf_bash_completion_selector "$1" "$__unquoted" "$3" <&"${COPROC[0]}")"

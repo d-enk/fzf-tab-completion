@@ -23,6 +23,7 @@ rather than [creating a new mechanism](https://github.com/junegunn/fzf/wiki/Exam
     * [zsh](#zsh)
     * [bash](#bash)
     * [readline](#readline)
+    * [nodejs](#nodejs-repl)
 1. The following environment variables are supported, just as in fzf's "vanilla" completion.
     * `$FZF_TMUX_HEIGHT`
     * `$FZF_COMPLETION_OPTS`
@@ -43,6 +44,12 @@ If you have also enabled fzf's zsh completion, then the `bindkey` line is option
 
 Note that this does not provide `**`-style triggers,
 you will need to enable fzf's zsh completion _as well_.
+
+#### --tiebreak=chunk
+
+The default `fzf` tiebreak setting is line: `Prefers line with shorter length`.
+The length of the zsh display strings may skew the ordering of the results even though they are not part of the match.
+You may find that adding the `fzf` flag `--tiebreak=chunk` to the environment variable `$FZF_COMPLETION_OPTS` provides better behaviour.
 
 #### tmux
 
@@ -102,41 +109,30 @@ you may prefer (or not!) to use the [readline](#readline) method instead.
 
 #### Autocomplete common prefix
 
-`FZF_COMPLETION_AUTO_COMMON_PREFIX=true`
+By default, fzf is always shown whenever there are at least 2 matches.
+You can change this to a more "vanilla" tab completion experience where
+it attempts to complete the longest common prefix *before* showing matches in fzf.
 
-Enables auto-completion of the common prefix if present (without fzf) - add prefix as whole word.
+This is controlled by the variables
+* `FZF_COMPLETION_AUTO_COMMON_PREFIX=true` - completes the common prefix if it is also a match
+* `FZF_COMPLETION_AUTO_COMMON_PREFIX_PART=true` - with the above variable, completes the common prefix even if it is not a match
 
+For example, if we have following files in a directory:
 ```
-   12 123 -> 12
-   121 123 -> 121 123
-```
-
-`FZF_COMPLETION_AUTO_COMMON_PREFIX_PART=true`
-
-Additionally enables native bash complete behavior - add prefix as part of word.
-
-```
-   12 123 -> 12
-   121 123 -> 12
+abcdef-1234
+abcdef-5678
+abc
+other
 ```
 
-#### No automatically select the only match
-
-`FZF_COMPLETION_NO_AUTO_SELECT_ONLY_ONE=true`
-
-Disables fzf option (-1, --select-1 Automatically select the only match).
-
-#### Auto call next completion
-
-`FZF_COMPLETION_AUTO_NEXT_CALL=true`
-
-Enables auto-call next completion for paths or if previous word was ends with space.
-To avoid unnecessary actions, auto next call with options:
-
-``` bash
-  local FZF_COMPLETION_NO_AUTO_SELECT_ONLY_ONE=true
-  local FZF_COMPLETION_AUTO_COMMON_PREFIX=false
-```
+With `FZF_COMPLETION_AUTO_COMMON_PREFIX=true`:
+* when completing `ls <tab>`, it will display fzf with all 4 files (as normal)
+* when completing `ls a<tab>`, it will automatically complete to `ls abc`. 
+    Pressing tab again will show fzf with the first 3 files.
+* when completing `ls abcd<tab>` it will show fzf with the first 2 files (as normal)
+* With `FZF_COMPLETION_AUTO_COMMON_PREFIX_PART=true` set as well:
+    * when completing `ls abcd<tab>`, it will automatically complete to `ls abcdef-`.
+        Pressing tab again will show fzf with the first 2 files.
 
 #### tmux
 
@@ -190,6 +186,13 @@ These are the applications that I have seen working:
 * `gdb`
 * `sqlite3`
 * `bash` (only when not statically but dynamically linked to libreadline)
+
+## nodejs repl
+
+1. Copy/symlink `/path/to/fzf-tab-completion/readline/bin/rl_custom_complete` into your `$PATH`
+1. Then run `node -r /path/to/fzf-tab-completion.git/node/fzf-node-completion.js`
+    * You may wish to add a shell alias to your `zshrc`/`bashrc` to avoid typing out the full command each time, e.g.:
+        `alias node='node -r /path/to/fzf-tab-completion.git/node/fzf-node-completion.js`
 
 ## Related projects
 
