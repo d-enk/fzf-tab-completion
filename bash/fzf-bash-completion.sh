@@ -241,6 +241,9 @@ END
 _fzf_bash_completion_expand_alias() {
     if alias "$1" &>/dev/null; then
         value=( ${BASH_ALIASES[$1]} )
+
+        if [ $value == "colourify" ]; then return; fi
+
         if [ -n "${value[*]}" -a "${value[0]}" != "$1" ]; then
             COMP_WORDS=( "${value[@]}" "${COMP_WORDS[@]:1}" )
             COMP_CWORD="$(( COMP_CWORD + ${#value[@]} - 1 ))"
@@ -302,11 +305,27 @@ _fzf_bash_completion_stop_next_call_if_equal_prev() {
 
         [ "$prev_items" ] && return # stop
 
-        printf "prev_items=(${items[*]})\n" >&"${__evaled}"
-        IFS=$'\n'; echo "${items[*]}"
+        echo "prev_items=( $(printf '"%s" ' "${items[@]}"))" >&"${__evaled}"
+
+        printf %s\\n "${items[@]}"
     fi
 
     cat
+}
+
+_fzf_bash_completion_try_next() {
+  if [ "$cur" ] && [ "$(complete -p -- "$cmd" 2>/dev/null)" ]; then
+    (( COMP_CWORD++ ))
+    cat
+
+  [ "$cmd" = "minikube" ] && return
+
+    # cat | awk -vcur="$cur" '$0!=cur'
+
+    _fzf_bash_completion_get_results "$cmd" "" "$cur" | awk -vpre="$cur " '$0=pre $0'
+  else
+    cat
+  fi
 }
 
 _fzf_bash_completion_auto_common_prefix() {
@@ -338,9 +357,9 @@ _fzf_bash_completion_auto_common_prefix() {
         if [ "$prefix_len" != "$input_len" ]; then
             if [ "$FZF_COMPLETION_AUTO_COMMON_PREFIX_PART" == true ] || [ "$prefix_is_full" == 1 ]; then
 
-                if [ "$prefix_is_full" == 1 ]; then
-                  [ "$COMP_CWORD" != 0 ] && printf 'local FZF_COMPLETION_AUTO_NEXT_CALL=false\n'>&"${__evaled}"
-                fi
+                # if [ "$prefix_is_full" == 1 ]; then
+                #   [ "$COMP_CWORD" != 0 ] && printf 'local FZF_COMPLETION_AUTO_NEXT_CALL=false\n'>&"${__evaled}"
+                # fi
 
                 ([ ${prefix:prefix_len:1} ] || [ "$nospace_suffix" ]) && printf 'compl_nospace=1\n'>&"${__evaled}" # no space if not only one
                 tr -d "$_FZF_COMPLETION_SEP" <<< "${prefix:0:prefix_len}"
@@ -359,7 +378,7 @@ _fzf_bash_completion_custom_source() {
 }
 
 _fzf_bash_completion_with_custom_source() {
-  ( _fzf_bash_completion_custom_source | rg "^$line" | cut -c "$(( ${#line} - ${#cur} + 1 ))-" | sed 's/ *$//g' ) 2>/dev/null
+  ( _fzf_bash_completion_custom_source | rg "^$line.*[^\s].*" | cut -c "$(( ${#line} - ${#cur} + 1 ))-" | sed 's/ *$//g' ) 2>/dev/null
   cat
 }
 
@@ -384,9 +403,9 @@ fzf_bash_completer() {
                 while (( $? == 124 )); do
                     _fzf_bash_completion_get_results "$@"
                 done
-            ) | _fzf_bash_completion_stop_next_call_if_equal_prev 5 \
-              | _fzf_bash_completion_with_custom_source \
-              | _fzf_bash_completion_unbuffered_awk '$0!="" && !x[$0]++' '$0 = "\x1b[37m" substr($0, 1, len) "\x1b[0m" sep substr($0, len+1)' -vlen="${#__unquoted}" -vsep="$_FZF_COMPLETION_SEP" \
+            ) | _fzf_bash_completion_with_custom_source \
+              | _fzf_bash_completion_stop_next_call_if_equal_prev 5 \
+              | _fzf_bash_completion_unbuffered_awk '$0!="" && !x[$0]++' '$0 = substr($0, 1, len) sep substr($0, len+1)' -vlen="${#__unquoted}" -vsep="$_FZF_COMPLETION_SEP" \
               | _fzf_bash_completion_auto_common_prefix "$__unquoted"
         )
         value="$(_fzf_bash_completion_selector "$1" "$__unquoted" "$3" <&"${COPROC[0]}")"
@@ -423,8 +442,8 @@ fzf_bash_completer() {
                 AUTO_NEXT_CALL=false
             elif [ "$COMP_CWORD" == 0 ]; then
                 [ "$compl_nospace" != 1 ] && AUTO_NEXT_CALL=true
-            elif [[ "$compl_filenames" != *1* ]]; then
-                [[ "$COMPREPLY" != */ ]] && AUTO_NEXT_CALL=true
+            elif [[ "$compl_filenames" = *1* ]]; then
+                [[ "$COMPREPLY" = */ ]] && AUTO_NEXT_CALL=true
             fi
         fi
 
