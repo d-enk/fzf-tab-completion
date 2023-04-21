@@ -9,7 +9,7 @@ _fzf_bash_completion_awk_escape() {
 }
 
 _fzf_bash_completion_shell_split() {
-    grep -E -o \
+    command grep -E -o \
         -e '[;(){}&\|:]' \
         -e '\|+|&+' \
         -e "(\\\\.|[^\"'[:space:];:(){}&\\|])+" \
@@ -48,7 +48,7 @@ _fzf_bash_completion_flatten_subshells() {
 
 _fzf_bash_completion_find_matching_bracket() {
     local count=0
-    while IFS=: read num bracket; do
+    while IFS=: read -r num bracket; do
         if [ "$bracket" = "$1" ]; then
             (( count++ ))
             if (( count > 0 )); then
@@ -58,7 +58,7 @@ _fzf_bash_completion_find_matching_bracket() {
         else
             (( count -- ))
         fi
-    done < <(grep -F -e '(' -e ')' -n)
+    done < <(command grep -F -e '(' -e ')' -n)
     return 1
 }
 
@@ -67,36 +67,51 @@ _fzf_bash_completion_parse_dq() {
     local last="$(<<<"$words" tail -n1)"
 
     if [[ "$last" == \"* ]]; then
-        local shell="${last:1}" _shell joined
+        local line="${last:1}" shell_start string_end joined num
         local word=
         while true; do
             # we are in a double quoted string
-            _shell="$(<<<"$shell" "$_fzf_bash_completion_sed" -r 's/^(\\.|[^"$])*\$\(//')"
 
-            if [ "$shell" = "$_shell" ]; then
-                # no subshells
+            shell_start="$(<<<"$line" command grep -E -o '^(\\.|\$[^(]|[^$])*\$\(')"
+            string_end="$(<<<"$line" command grep -E -o '^(\\.|[^"])*"')"
+
+            if (( ${#string_end} && ( ! ${#shell_start} || ${#string_end} < ${#shell_start} )  )); then
+                # found end of string
+                line="${line:${#string_end}}"
+                if (( ${#line} )); then
+                    printf '%s\n' "${words:0:-${#line}}"
+                    _fzf_bash_completion_parse_line <<<"$line"
+                else
+                    printf '%s\n' "$words"
+                fi
+                return
+
+            elif (( ${#shell_start} && ( ! ${#string_end} || ${#shell_start} < ${#string_end} )  )); then
+                # found a subshell
+
+                word+="${shell_start:0:-2}"
+                line="${line:${#shell_start}}"
+
+                split="$(<<<"$line" _fzf_bash_completion_shell_split)"
+                if ! split="$(_fzf_bash_completion_parse_dq <<<"$split")"; then
+                    # bubble up
+                    printf '%s\n' "$split"
+                    return 1
+                fi
+                if ! num="$(_fzf_bash_completion_find_matching_bracket ')' <<<"$split")"; then
+                    # subshell not closed, this is it
+                    printf '%s\n' "$split"
+                    return 1
+                fi
+                # subshell closed
+                joined="$(<<<"$split" head -n "$num" | tr -d \\n)"
+                word+=$'\n$('"$joined"$'\n'
+                line="${line:${#joined}}"
+
+            else
+                # the whole line is an incomplete string
                 break
             fi
-
-            word+="${shell:0:-${#_shell}-2}"
-            shell="$_shell"
-
-            # found a subshell
-            split="$(<<<"$shell" _fzf_bash_completion_shell_split)"
-            if ! split="$(_fzf_bash_completion_parse_dq <<<"$split")"; then
-                # bubble up
-                printf '%s\n' "$split"
-                return 1
-            fi
-            if ! num="$(_fzf_bash_completion_find_matching_bracket ')' <<<"$split")"; then
-                # subshell not closed, this is it
-                printf '%s\n' "$split"
-                return 1
-            fi
-            # subshell closed
-            joined="$(<<<"$split" head -n "$num" | tr -d \\n)"
-            word+=$'\n$('"$joined"$'\n'
-            shell="${shell:${#joined}}"
         done
     fi
     printf '%s\n' "$words"
@@ -108,12 +123,19 @@ _fzf_bash_completion_parse_line() {
         | _fzf_bash_completion_flatten_subshells \
         | tr \\n \\0 \
         | "$_fzf_bash_completion_sed" -r "$(cat <<'EOF'
-s/\x00\s*\x00/\n/g;
+# collapse newlines
+s/\x00\s*\x00/\x00/g;
+# leave trailing space
 s/\x00(\s*)$/\n\1/;
+# A & B -> (A, &, B)
 s/([^&\n\x00])&([^&\n\x00])/\1\n\&\n\2/g;
+# > B -> (>, B)
 s/([\n\x00\z])([<>]+)([^\n\x00])/\1\2\n\3/g;
 s/([<>][\n\x00])$/\1\n/;
-s/^(.*[\x00\n])?(\[\[|&|;|&&|\|[|&]?)[\x00\n]//;
+# clear up until the a keyword starting a new command
+# except the last line isn't a keyword, it may be the start of a command
+s/^(.*[\x00\n])?(\[\[|case|do|done|elif|else|esac|fi|for|function|if|in|select|then|time|until|while|&|;|&&|\|[|&]?)\x00//;
+# remove ENVVAR=VALUE
 s/^(\s*[\n\x00]|\w+=[^\n\x00]*[\n\x00])*//
 EOF
 )" \
@@ -158,6 +180,7 @@ fzf_bash_completion() {
     command tput rc 2>/dev/null || echo -ne "\0338"
 
     local COMP_WORDS COMP_CWORD COMP_POINT COMP_LINE
+    local COMP_TYPE=37 # % == indicates menu completion
     local line="${READLINE_LINE:0:READLINE_POINT}"
     readarray -t COMP_WORDS < <(_fzf_bash_completion_parse_line <<<"$line")
 
@@ -252,7 +275,6 @@ _fzf_bash_completion_expand_alias() {
 }
 
 _fzf_bash_completion_get_results() {
-    local trigger="${FZF_COMPLETION_TRIGGER-**}"
     if [[ "$2" =~ .*\$(\{?)([A-Za-z0-9_]*)$ ]]; then
         # environment variables
         local brace="${BASH_REMATCH[1]}"
@@ -263,32 +285,6 @@ _fzf_bash_completion_get_results() {
             local prefix="$2"
         fi
         compgen -v -P "$prefix" -S "${brace:+\}}" -- "$filter"
-    elif [[ "$2" == *"$trigger" ]]; then
-        # replicate fzf ** trigger completion
-        local suffix="${2##*/}"
-        local prefix="${2::${#2}-${#suffix}}"
-        suffix="${suffix::${#suffix}-${#trigger}}"
-
-        local flags=()
-        if [[ "$1" =~ cd|pushd|rmdir ]]; then
-            flags=( -type d )
-        fi
-
-        if [[ ! "$prefix" =~ (.?/).* ]]; then
-            prefix="./$prefix"
-        elif [ "${prefix::2}" = '~/' ]; then
-            prefix="${HOME}/${prefix:2}"
-        fi
-
-        # smart case
-        if [ "${suffix,,}" = "${suffix}" ]; then
-            flags+=( -ipath "$prefix$suffix*" )
-        else
-            flags+=( -path "$prefix$suffix*" )
-        fi
-
-        printf '%s\n' compl_filenames=1 >&"${__evaled}"
-        find -L "$prefix" -mindepth 1 "${flags[@]}" \( -type d -printf "%p/\n" , -type f -print \) 2>/dev/null | "$_fzf_bash_completion_sed" 's,^\./,,'
     else
         _fzf_bash_completion_complete "$@"
     fi
@@ -410,6 +406,8 @@ fzf_bash_completer() {
         )
         value="$(_fzf_bash_completion_selector "$1" "$__unquoted" "$3" <&"${COPROC[0]}")"
         code="$?"
+        value="$(<<<"$value" tr \\n \ )"
+        value="${value% }"
 
         printf 'COMPREPLY=%q\n' "$value"
         printf 'code=%q\n' "$code"
@@ -417,24 +415,6 @@ fzf_bash_completer() {
     )"
 
     if [ "$code" = 0 ]; then
-        readarray -t COMPREPLY < <(
-            if [ "$compl_noquote" != 1 -a "$compl_filenames" = 1 ]; then
-                while IFS= read -r line; do
-                    if [ "$line" = "$2" ]; then
-                        printf '%s\n' "$line"
-                    # never quote the prefix
-                    elif [ "${line::${#2}}" = "$2" ]; then
-                        printf '%s%s\n' "$2" "${line:${#2}}"
-                    elif [ "${line::1}" = '~' ]; then
-                        printf '~%q\n' "${line:1}"
-                    else
-                        printf '%q\n' "$line"
-                    fi
-                done
-            else
-                cat
-            fi <<<"$COMPREPLY"
-        )
         COMPREPLY="${COMPREPLY[*]}"
 
         if [ "$FZF_COMPLETION_AUTO_NEXT_CALL" = true ] && [ "$COMPREPLY" ]; then
@@ -508,8 +488,7 @@ _fzf_bash_completion_complete() {
         fi
     fi
 
-    compl_filenames="${compl_filenames}${compl_plusdirs}${compl_dirnames}"
-    if [[ "$compl_filenames" == *1* ]]; then
+    if [[ "$compl_filenames" == 1 ]]; then
         local dir_marker=_fzf_bash_completion_dir_marker
     else
         local dir_marker=cat
@@ -522,7 +501,7 @@ _fzf_bash_completion_complete() {
     (
         (
             if [ -n "${compgen_actions[*]}" ]; then
-                compgen "${compgen_opts[@]}" -- "$2"
+                compgen "${compgen_actions[@]}" -- "$2"
             fi
 
             if [ -n "$compl_globpat" ]; then
@@ -545,23 +524,31 @@ _fzf_bash_completion_complete() {
                 )
             fi
 
-            printf '%s\n'
+            printf '\n'
         ) | _fzf_bash_completion_apply_xfilter "$compl_xfilter" \
           | _fzf_bash_completion_unbuffered_awk '$0!=""' 'sub(find, replace)' -vfind='.*' -vreplace="$(printf %s "$compl_prefix" | "$_fzf_bash_completion_sed" 's/[&\]/\\&/g')&$(printf %s "$compl_suffix" | "$_fzf_bash_completion_sed" 's/[&\]/\\&/g')" \
           | if IFS= read -r line; then
-                printf '%s\n' "$line"; cat
+                (printf '%s\n' "$line"; cat) | _fzf_bash_completion_quote_filenames "$@"
             else
+                # got no results
                 local compgen_opts=()
                 [ "$compl_bashdefault" = 1 ] && compgen_opts+=( -o bashdefault )
                 [ "$compl_default" = 1 ] && compgen_opts+=( -o default )
                 [ "$compl_dirnames" = 1 ] && compgen_opts+=( -o dirnames )
+                # don't double invoke fzf
                 if [ -n "${compgen_opts[*]}" ]; then
-                    compgen "${compgen_opts[@]}" -- "$2"
+                    if [[ "$compl_function" != _fzf_*_completion ]] || ! command -v "$compl_function" &>/dev/null; then
+                        compgen "${compgen_opts[@]}" -- "$2" \
+                        | _fzf_bash_completion_dir_marker \
+                        | compl_filenames=1 _fzf_bash_completion_quote_filenames "$@"
+                    fi
                 fi
             fi
 
         if [ "$compl_plusdirs" = 1 ]; then
-            compgen -o dirnames -- "$2"
+            compgen -o dirnames -- "$2" \
+            | _fzf_bash_completion_dir_marker \
+            | compl_filenames=1 _fzf_bash_completion_quote_filenames "$@"
         fi
     ) \
     | _fzf_bash_completion_unbuffered_awk '' 'sub(find, replace)' -vfind="^$(_fzf_bash_completion_awk_escape "$2")" -vreplace="$("$_fzf_bash_completion_sed" -r 's/\\(.)/\1/g; s/[&\]/\\&/g' <<<"$2")" \
@@ -597,6 +584,26 @@ _fzf_bash_completion_dir_marker() {
         [ -d "${expanded-"$line"}" ] && line="${line%/}/"
         printf '%s\n' "$line"
     done
+}
+
+_fzf_bash_completion_quote_filenames() {
+    if [ "$compl_noquote" != 1 -a "$compl_filenames" = 1 ]; then
+        local IFS line
+        while IFS= read -r line; do
+            if [ "$line" = "$2" ]; then
+                printf '%s\n' "$line"
+            # never quote the prefix
+            elif [ "${line::${#2}}" = "$2" ]; then
+                printf '%s%q\n' "$2" "${line:${#2}}"
+            elif [ "${line::1}" = '~' ]; then
+                printf '~%q\n' "${line:1}"
+            else
+                printf '%q\n' "$line"
+            fi
+        done
+    else
+        cat
+    fi
 }
 
 _fzf_bash_completion_compopt() {
